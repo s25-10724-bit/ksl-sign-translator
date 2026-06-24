@@ -3,7 +3,6 @@
 
 import cv2
 import numpy as np
-import mediapipe as mp
 
 from config import (
     MAX_NUM_HANDS,
@@ -11,8 +10,12 @@ from config import (
     MIN_TRACKING_CONFIDENCE,
     FEATURES_PER_FRAME,
 )
+import mediapipe as mp
 
-mp_hands = mp.solutions.hands    # MediaPipe Hands 모듈
+try:
+    mp_hands = mp.solutions.hands
+except AttributeError:
+    from mediapipe.python.solutions import hands as mp_hands    # MediaPipe Hands 모듈
 
 
 def empty_hand():    # 손이 감지되지 않았을 때 사용할 빈 좌표
