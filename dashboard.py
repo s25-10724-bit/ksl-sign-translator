@@ -16,13 +16,90 @@ from config import (
     STABLE_COUNT,
 )
 
-from extract_landmarks import extract_frame_landmarks, resample_or_pad
 from label_map import to_display_label
+
+
+# MediaPipe 버전 호환 처리
+try:
+    mp_hands = mp.solutions.hands
+    mp_draw = mp.solutions.drawing_utils
+except AttributeError:
+    from mediapipe.python.solutions import hands as mp_hands
+    from mediapipe.python.solutions import drawing_utils as mp_draw
 
 
 MODEL_PATH = Path("models/ksl_model.tflite")
 LABEL_PATH = Path("models/labels.txt")
 SCALER_PATH = Path("models/scaler.npz")
+
+
+def empty_hand():
+    return np.zeros((21, 3), dtype=np.float32)
+
+
+def landmark_to_array(hand_landmarks):
+    points = []
+
+    for landmark in hand_landmarks.landmark:
+        points.append([
+            landmark.x,
+            landmark.y,
+            landmark.z
+        ])
+
+    return np.array(points, dtype=np.float32)
+
+
+def normalize_hand(hand_array):
+    wrist = hand_array[0].copy()
+    centered = hand_array - wrist
+
+    scale = np.linalg.norm(centered[9])
+
+    if scale < 1e-6:
+        scale = 1.0
+
+    normalized = centered / scale
+
+    return normalized.astype(np.float32)
+
+
+def extract_features_from_result(result):
+    hands = []
+
+    if result.multi_hand_landmarks:
+        for hand_landmarks in result.multi_hand_landmarks[:MAX_NUM_HANDS]:
+            hand_array = landmark_to_array(hand_landmarks)
+            hand_array = normalize_hand(hand_array)
+            hands.append(hand_array)
+
+    while len(hands) < MAX_NUM_HANDS:
+        hands.append(empty_hand())
+
+    hands = hands[:MAX_NUM_HANDS]
+
+    feature = np.concatenate(hands, axis=0).reshape(-1)
+
+    return feature.astype(np.float32)
+
+
+def resample_or_pad(sequence, max_frames):
+    sequence = np.asarray(sequence, dtype=np.float32)
+
+    if len(sequence) == 0:
+        return np.zeros((max_frames, MAX_NUM_HANDS * 21 * 3), dtype=np.float32)
+
+    if len(sequence) == max_frames:
+        return sequence
+
+    if len(sequence) > max_frames:
+        indices = np.linspace(0, len(sequence) - 1, max_frames).astype(int)
+        return sequence[indices]
+
+    pad_count = max_frames - len(sequence)
+    padding = np.zeros((pad_count, sequence.shape[1]), dtype=np.float32)
+
+    return np.concatenate([sequence, padding], axis=0)
 
 
 def load_labels(path):
@@ -316,9 +393,6 @@ def main():
     confirmed_confidence = 0.0
     history = []
 
-    mp_hands = mp.solutions.hands
-    mp_draw = mp.solutions.drawing_utils
-
     with mp_hands.Hands(
         static_image_mode=False,
         max_num_hands=MAX_NUM_HANDS,
@@ -336,17 +410,17 @@ def main():
             frame = cv2.flip(frame, 1)
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            draw_result = hands.process(rgb)
+            result = hands.process(rgb)
 
-            if draw_result.multi_hand_landmarks:
-                for hand_landmarks in draw_result.multi_hand_landmarks:
+            if result.multi_hand_landmarks:
+                for hand_landmarks in result.multi_hand_landmarks:
                     mp_draw.draw_landmarks(
                         frame,
                         hand_landmarks,
                         mp_hands.HAND_CONNECTIONS
                     )
 
-            feature = extract_frame_landmarks(frame, hands)
+            feature = extract_features_from_result(result)
             sequence.append(feature)
 
             if len(sequence) > DEFAULT_MAX_FRAMES:
