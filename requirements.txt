@@ -1,7 +1,8 @@
 opencv-python
 mediapipe==0.10.21
 numpy
-scikit-learn
 tensorflow
-pyttsx3
 streamlit
+pillow
+pyttsx3
+scikit-learn
