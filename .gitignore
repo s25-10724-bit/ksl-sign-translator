@@ -1,6 +1,5 @@
 downloaded_data/
 dataset/
-models/
 
 __pycache__/
 *.pyc
